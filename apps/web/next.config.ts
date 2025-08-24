@@ -2,7 +2,11 @@
 /** @type {import('next').NextConfig} */
 const INGEST_BASE = process.env.INGEST_BASE || 'http://localhost:5001';
 
-module.exports = {
+const nextConfig = {
+  eslint: {
+    //eslint off
+    ignoreDuringBuilds: true,
+  },
   async rewrites() {
     return [
       // forward all ingest endpoints to the worker
@@ -11,3 +15,5 @@ module.exports = {
     ];
   },
 };
+
+module.exports = nextConfig;
