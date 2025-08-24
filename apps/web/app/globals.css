@@ -1,0 +1,38 @@
+@import "tailwindcss";
+
+/* light by default */
+body {
+  background: #f7f7f8;
+  color: #1f2937;
+}
+
+/* dotted + faint grid background container */
+.paper-grid {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(0,0,0,0.06) 1.2px, transparent 0),
+    linear-gradient(rgba(0,0,0,0.05) 1px, transparent 0),
+    linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 0);
+  background-size: 16px 16px, 24px 24px, 24px 24px;
+  background-position: 0 0, 0 0, 0 0;
+}
+
+/* dark theme overrides when <html class="dark"> */
+.dark body {
+  background: #000;
+  color: #e5e7eb;
+}
+.dark .paper-grid {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(255,255,255,0.12) 1.2px, transparent 0),
+    linear-gradient(rgba(255,255,255,0.05) 1px, transparent 0),
+    linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 0);
+}
+
+/* nicer scrollbars */
+* { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.3) transparent; }
+*::-webkit-scrollbar { height: 8px; width: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.3); border-radius: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+.dark * { scrollbar-color: rgba(255,255,255,0.25) transparent; }
+.dark *::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.25); }
