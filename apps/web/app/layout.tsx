@@ -3,7 +3,7 @@ import "./globals.css"
 import type { ReactNode } from "react"
 
 export const metadata = {
-  title: "Drop your knowledge here",
+  title: "DocChat",
   description: "Chat with your documents",
 }
 
