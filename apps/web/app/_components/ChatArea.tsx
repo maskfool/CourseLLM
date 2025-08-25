@@ -49,7 +49,7 @@ export default function ChatArea({
             value={val}
             onChange={(e) => setVal(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend() }}}
-            placeholder="Type your question… you can also upload a course folder and ask with timestamps ✨"
+            placeholder="Type your question… ✨"
             className={`flex-1 resize-none rounded-xl border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
               dark ? "border-white/20 bg-black/40 text-neutral-100 focus:ring-white/10"
                    : "border-neutral-300 bg-white text-neutral-800 focus:ring-neutral-200"
