@@ -43,7 +43,7 @@ async function streamToLimitedBuffer(stream) {
 
 function htmlToText(html, baseUrl) {
   const $ = cheerio.load(html)
-  // Remove noise
+  
   $('script, style, noscript, iframe, nav, header, footer').remove()
   // Try to prefer main content if present
   const root = $('main').length ? $('main') : $('body')
@@ -67,7 +67,6 @@ export async function fromUrl(url, docId) {
   const ctype = String(res.headers['content-type'] || '').toLowerCase()
   const mime = ctype.split(';')[0].trim()
 
-  // Only allow a known set to keep processing predictable
   if (!ALLOWED_TYPES.some(t => mime.startsWith(t))) {
     if (!mime.startsWith('text/')) {
       throw new Error(`Unsupported content-type: ${mime || 'unknown'}`)

@@ -17,7 +17,7 @@ export async function fromSrt(filePath) {
   const docs = []
   let i = 0
   while (i < lines.length) {
-    // cue number
+    
     if (/^\d+$/.test(lines[i]?.trim() || '')) i++
 
     const timeLine = lines[i] || ''
@@ -33,7 +33,7 @@ export async function fromSrt(filePath) {
       buff.push(lines[i])
       i++
     }
-    // skip blank
+    
     i++
 
     const text = buff.join('\n').trim()
