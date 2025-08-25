@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react"
 import Sidebar from "./_components/Sidebar"
 import ChatArea from "./_components/ChatArea"
-import { uploadFile, uploadText, uploadUrl, deleteDoc, warmUpIngest } from "./lib/uploads"
+import { uploadFile, uploadText, uploadUrl, deleteDoc } from "./lib/uploads"
 import { askQuestion } from "./lib/chat"
 import { COURSES, courseLabel } from "./lib/courses"
 
@@ -78,7 +78,7 @@ Chalo shuru karte hain… 🚀`,
     if (!files.length) return
 
     // Warm-up remote (Render free dyno, cold start)
-    await warmUpIngest().catch(() => {})
+    
 
     const MAX_CONC = 3
     let idx = 0
