@@ -1,9 +1,10 @@
-import 'dotenv/config'
+// apps/ingest-worker/src/services/embedding.js
 import { OpenAIEmbeddings } from '@langchain/openai'
+
+export const EMBED_MODEL = process.env.EMBEDDING_MODEL || 'text-embedding-3-small'
+export const EMBED_DIM = Number(process.env.EMBEDDING_DIM || 1536)
 
 export const embeddings = new OpenAIEmbeddings({
   apiKey: process.env.OPENAI_API_KEY,
-  model: process.env.OPENAI_EMBED_MODEL || 'text-embedding-3-large',
-  batchSize: 64,        // tune 64–128; keeps requests smaller
-  maxConcurrency: 4,    // parallelize safely
+  model: EMBED_MODEL,
 })

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react"
 import Sidebar from "./_components/Sidebar"
 import ChatArea from "./_components/ChatArea"
-import { uploadFile, uploadText, uploadUrl, deleteDoc } from "./lib/uploads"
+import { uploadFile, uploadText, uploadUrl, deleteDoc, warmUpIngest } from "./lib/uploads"
 import { askQuestion } from "./lib/chat"
 import { COURSES, courseLabel } from "./lib/courses"
 
@@ -62,11 +62,19 @@ export default function Page() {
     setMessages((m) => m.map((msg) => (msg.id === id ? { ...msg, text: newText, time: t } : msg)))
   }
 
-  function addFiles(fileList: FileList | File[]) {
+  // Throttled/concurrent uploads with warm-up + better error messages
+  async function addFiles(fileList: FileList | File[]) {
     const files = Array.from(fileList || [])
     if (!files.length) return
 
-    files.forEach(async (f) => {
+    // Warm-up remote (Render free dyno, cold start)
+    await warmUpIngest().catch(() => {})
+
+    const MAX_CONC = 3
+    let idx = 0
+    const inflight: Promise<void>[] = []
+
+    const runOne = async (f: File) => {
       const localId = "local-" + Date.now() + "-" + Math.random()
       const rel = (f as any).webkitRelativePath || undefined
       setUploads((u) => [...u, { localId, kind: "file", name: rel || f.name, size: f.size, pending: true }])
@@ -76,11 +84,37 @@ export default function Page() {
         const res = await uploadFile(f, rel, f.name)
         setUploads((u) => u.map((it) => it.localId === localId ? { ...it, docId: res.docId, pending: false } : it))
         updateSystemMessage(pendingMsgId as number, `✅ ${rel || f.name} uploaded & indexed successfully!`)
-      } catch {
+      } catch (e: any) {
+        const msg = String(e?.message || e)
+        // Friendlier messages for 409/415
+        if (/Skipped hidden\/system file/i.test(msg) || /Unsupported file type/i.test(msg)) {
+          updateSystemMessage(pendingMsgId as number, `⚠️ Skipped: ${rel || f.name} (${msg})`)
+        } else {
+          updateSystemMessage(pendingMsgId as number, `❌ ${rel || f.name} upload failed. ${msg}`)
+        }
         setUploads((u) => u.filter((x) => x.localId !== localId))
-        updateSystemMessage(pendingMsgId as number, `❌ ${rel || f.name} upload failed.`)
       }
-    })
+    }
+
+    // tiny pool
+    while (idx < files.length) {
+      while (inflight.length < MAX_CONC && idx < files.length) {
+        const p = runOne(files[idx++])
+          .catch(() => {})
+          .finally(() => {
+            // remove from pool on settle
+            const i = inflight.indexOf(p as any)
+            if (i >= 0) inflight.splice(i, 1)
+          })
+        inflight.push(p as any)
+      }
+      // wait for one to finish
+      if (inflight.length) {
+        await Promise.race(inflight).catch(() => {})
+      }
+    }
+    // drain
+    await Promise.allSettled(inflight)
   }
 
   async function addText(text: string) {
@@ -94,9 +128,10 @@ export default function Page() {
       const res = await uploadText(text)
       setUploads((u) => u.map((it) => it.localId === localId ? { ...it, docId: res.docId, pending: false } : it))
       updateSystemMessage(pendingMsgId as number, "✅ Text snippet added & processed successfully!")
-    } catch {
+    } catch (e: any) {
+      const msg = String(e?.message || e)
       setUploads((u) => u.filter((x) => x.localId !== localId))
-      updateSystemMessage(pendingMsgId as number, "❌ Failed to process text snippet.")
+      updateSystemMessage(pendingMsgId as number, `❌ Failed to process text snippet. ${msg}`)
     }
   }
 
@@ -110,9 +145,10 @@ export default function Page() {
       const res = await uploadUrl(url)
       setUploads((u) => u.map((it) => it.localId === localId ? { ...it, docId: res.docId, pending: false } : it))
       updateSystemMessage(pendingMsgId as number, `✅ URL "${url}" crawled & indexed successfully!`)
-    } catch {
+    } catch (e: any) {
+      const msg = String(e?.message || e)
       setUploads((u) => u.filter((x) => x.localId !== localId))
-      updateSystemMessage(pendingMsgId as number, `❌ Failed to process URL "${url}".`)
+      updateSystemMessage(pendingMsgId as number, `❌ Failed to process URL "${url}". ${msg}`)
     }
   }
 
@@ -128,8 +164,9 @@ export default function Page() {
       await deleteDoc(item.docId)
       setUploads((u) => u.filter((x) => x.localId !== item.localId))
       updateSystemMessage(pendingId as number, `✅ Deleted "${item.name}" and all its chunks.`)
-    } catch {
-      updateSystemMessage(pendingId as number, `❌ Failed to delete "${item.name}".`)
+    } catch (e: any) {
+      const msg = String(e?.message || e)
+      updateSystemMessage(pendingId as number, `❌ Failed to delete "${item.name}". ${msg}`)
     }
   }
 
@@ -167,7 +204,6 @@ export default function Page() {
         })
         .filter(Boolean) as TimeRef[]
 
-      // keep time chips ordered
       refs.sort((a, b) => (a.startClock || "").localeCompare(b.startClock || ""))
 
       setMessages((m) =>

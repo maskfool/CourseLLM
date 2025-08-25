@@ -1,3 +1,4 @@
+// apps/ingest-worker/server.js
 import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
@@ -12,12 +13,20 @@ import { deleteByDocId /*, countByDocId */ } from './src/services/vectorstore.js
 
 const app = express()
 app.use(cors({ origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*' }))
-app.use(express.json({ limit: '4mb' }))
+app.use(express.json({ limit: '8mb' })) // ↑ more headroom
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const uploadsDir = path.join(__dirname, 'uploads')
-const upload = multer({ dest: uploadsDir }).single('file')
+
+const upload = multer({
+  dest: uploadsDir,
+  limits: {
+    fileSize: 20 * 1024 * 1024, // 20MB per file
+    files: 1,
+    fields: 10,
+  },
+}).single('file')
 
 const newDocId = (p='doc') => `${p}_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`
 
@@ -31,12 +40,11 @@ app.post('/api/ingest/file', (req, res) => {
         return res.status(400).json({ success: false, error: 'No file provided' })
       }
 
-      // Original name + normalized for type detection
       const original = req.file.originalname || ''
       const base = path.basename(original)
-
-      // Skip hidden/system junk early with 409 (Conflict/Skipped)
       const lowerBase = base.toLowerCase()
+
+      // Skip hidden/system junk early with 409
       const isHiddenOrJunk =
         base.startsWith('.') ||
         lowerBase === 'thumbs.db' ||
@@ -49,9 +57,8 @@ app.post('/api/ingest/file', (req, res) => {
         return res.status(409).json({ success: false, error: 'Skipped hidden/system file', file: base })
       }
 
-      // Normalize extension to lowercase to tolerate .VTT/.SRT, etc.
+      // Normalize extension (e.g. .VTT → .vtt) for type detection
       const displayName = base.replace(/\.[^.]+$/, (ext) => ext.toLowerCase())
-
       const explicitType = getTypeFromPath(displayName)
       if (!explicitType) {
         return res.status(415).json({ success: false, error: `Unsupported file type for: ${displayName}` })
@@ -70,7 +77,7 @@ app.post('/api/ingest/file', (req, res) => {
         explicitType,
         docId,
         displayName,
-        relpath // pass-through for course/section inference
+        relpath // for course/section inference
       )
 
       res.json({ success: true, docId, result })
@@ -127,6 +134,11 @@ app.delete('/api/docs/:docId', async (req, res) => {
 })
 
 const PORT = process.env.PORT || 5001
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`🚀 Ingest worker running on :${PORT}`)
 })
+
+// Tune HTTP timeouts (stability behind Render proxy)
+server.keepAliveTimeout = 65_000
+server.headersTimeout = 66_000
+server.requestTimeout = 0

@@ -1,10 +1,8 @@
+// apps/ingest-worker/src/services/vectorstore.js
 import { QdrantVectorStore } from '@langchain/community/vectorstores/qdrant'
 import { embeddings } from './embedding.js'
-import { qdrant, ensureCollection } from './qdrant.js'
+import { qdrant, ensureCollection, COLLECTION } from './qdrant.js'
 
-const COLLECTION = process.env.QDRANT_COLLECTION || 'chaicode-collection'
-
-// make a single store instance for reuse
 async function getStore() {
   await ensureCollection()
   return QdrantVectorStore.fromExistingCollection(embeddings, {
@@ -13,30 +11,51 @@ async function getStore() {
   })
 }
 
-// ---------- UPDATED: batched upserts ----------
+// simple backoff
+const wait = (ms) => new Promise(r => setTimeout(r, ms))
+
 export async function addDocuments(docs) {
   await ensureCollection()
   const store = await getStore()
 
-  // conservative batch size: ~250–400 points per request keeps payload << 32MB
-  const BATCH = Number(process.env.QDRANT_BATCH || 300)
+  const BATCH = Number(process.env.QDRANT_BATCH || 250)
+  const MAX_RETRIES = 4
 
   let inserted = 0
   for (let i = 0; i < docs.length; i += BATCH) {
     const slice = docs.slice(i, i + BATCH)
-    await store.addDocuments(slice)     // embeds (batched per embedding settings) + upserts
+
+    let attempt = 0
+    // retry addDocuments (embedding+upsert) when OpenAI/Qdrant blip
+    for (; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await store.addDocuments(slice)
+        break
+      } catch (err) {
+        const isLast = attempt === MAX_RETRIES
+        const backoff = 400 * Math.pow(2, attempt)
+        console.warn(`[vectorstore] batch ${i} failed (attempt ${attempt + 1}): ${err?.message || err}`)
+        if (isLast) throw err
+        await wait(backoff)
+      }
+    }
+
     inserted += slice.length
-    console.log(`[vectorstore] upserted batch ${i}-${i + slice.length - 1} (${inserted}/${docs.length})`)
+    console.log(`[vectorstore] upserted ${inserted}/${docs.length}`)
   }
   console.log(`[vectorstore] added ${docs.length} chunks → ${COLLECTION}`)
 }
 
 export async function similaritySearchFiltered(
   query,
-  { topK = Number(process.env.RAG_TOP_K || 5), minSimilarity = 0.75, oversample = Math.max(8, topK * 3) } = {}
+  { topK = Number(process.env.RAG_TOP_K || 5), minSimilarity = 0.75, oversample = Math.max(8, topK * 3), courseId } = {}
 ) {
   const store = await getStore()
-  const pairs = await store.similaritySearchWithScore(query, oversample)
+  const filter = courseId && courseId !== 'all'
+    ? { must: [{ key: 'metadata.course_id', match: { value: courseId } }] }
+    : undefined
+
+  const pairs = await store.similaritySearchWithScore(query, oversample, filter)
   const picked = []
   for (const [doc, distance] of pairs) {
     const sim = 1 - Math.min(Math.max(distance, 0), 1)

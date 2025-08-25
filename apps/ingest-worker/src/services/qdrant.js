@@ -1,19 +1,21 @@
-import 'dotenv/config'
+// apps/ingest-worker/src/services/qdrant.js
 import { QdrantClient } from '@qdrant/js-client-rest'
+import { EMBED_DIM } from './embedding.js'
 
-const url = process.env.QDRANT_URL || 'http://localhost:6333'
-const apiKey = process.env.QDRANT_API_KEY || undefined
-export const qdrant = new QdrantClient({ url, apiKey,checkCompatibility: false, })
+export const COLLECTION = process.env.QDRANT_COLLECTION || 'chaicode-collection'
 
-export async function ensureCollection() {
-  const collectionName = process.env.QDRANT_COLLECTION || 'chaicode-collection'
+export const qdrant = new QdrantClient({
+  url: process.env.QDRANT_URL,          // e.g. https://...cloud.qdrant.io:6333
+  apiKey: process.env.QDRANT_API_KEY,   // undefined for local
+})
+
+export async function ensureCollection(dim = EMBED_DIM) {
   try {
-    await qdrant.getCollections()
-    await qdrant.getCollection(collectionName)
-  } catch {
-    await qdrant.createCollection(collectionName, {
-      vectors: { size: 1536, distance: 'Cosine' }, // text-embedding-3-small = 1536
-    })
-  }
-  return collectionName
+    const { collections } = await qdrant.getCollections()
+    if (collections?.some(c => c.name === COLLECTION)) return
+  } catch { /* fallthrough */ }
+
+  await qdrant.createCollection(COLLECTION, {
+    vectors: { size: dim, distance: 'Cosine' },
+  })
 }
