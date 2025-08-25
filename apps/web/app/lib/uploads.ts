@@ -1,83 +1,39 @@
-// apps/web/lib/uploads.ts
+import axios from "axios"
 
-// If NEXT_PUBLIC_INGEST_ORIGIN is set (e.g. https://your-ingest.onrender.com),
-// the browser talks to ingest directly. Otherwise, fall back to Next proxy (/api/...).
-const ORIGIN = (process.env.NEXT_PUBLIC_INGEST_ORIGIN || "").replace(/\/$/, "")
-const BASE = ORIGIN ? `${ORIGIN}/api` : "/api"
+const BASE =
+  (typeof window !== "undefined" && (window as any).__NEXT_PUBLIC_INGEST_BASE) ||
+  process.env.NEXT_PUBLIC_INGEST_BASE
 
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms))
-}
-
-async function retryFetch(url: string, init: RequestInit, tries = 3) {
-  let lastErr: any
-  for (let i = 0; i < tries; i++) {
-    try {
-      const res = await fetch(url, init)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        const msg = json?.error || res.statusText
-        // Treat 409/415/4xx as final (don’t retry)
-        if (res.status >= 400 && res.status < 500 && res.status !== 429) {
-          throw new Error(msg)
-        }
-        throw new Error(msg)
-      }
-      return json
-    } catch (e: any) {
-      lastErr = e
-      const msg = String(e?.message || e)
-      // Retry only on likely transient errors
-      if (/ECONNRESET|socket hang up|network|timeout|fetch failed|502|503|504/i.test(msg)) {
-        await sleep(1000 * (i + 1))
-        continue
-      }
-      throw e
-    }
-  }
-  throw lastErr
-}
-
-export async function warmUpIngest() {
-  try {
-    await fetch(`${BASE}/health`, { cache: "no-store" })
-  } catch {
-    // ignore warm-up failures
-  }
+function apiBase() {
+  // Fallback to relative only in local dev where you proxy or run worker locally
+  return BASE || "/api"
 }
 
 /** Send one file; supports folder uploads via `relpath` */
 export async function uploadFile(file: File, relpath?: string, displayName?: string) {
-  const fd = new FormData()
-  fd.append("file", file, file.name)
-  if (relpath) fd.append("relpath", relpath)
-  if (displayName) fd.append("displayName", displayName)
+  const formData = new FormData()
+  formData.append("file", file)
+  if (relpath) formData.append("relpath", relpath)
+  if (displayName) formData.append("displayName", displayName)
 
-  return retryFetch(`${BASE}/ingest/file`, {
-    method: "POST",
-    body: fd,
+  const res = await axios.post(`${apiBase()}/ingest/file`, formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    timeout: 45_000,
   })
+  return res.data
 }
 
 export async function uploadText(text: string) {
-  return retryFetch(`${BASE}/ingest/text`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
-  })
+  const res = await axios.post(`${apiBase()}/ingest/text`, { text }, { timeout: 30_000 })
+  return res.data
 }
 
 export async function uploadUrl(url: string) {
-  return retryFetch(`${BASE}/ingest/url`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url }),
-  })
+  const res = await axios.post(`${apiBase()}/ingest/url`, { url }, { timeout: 45_000 })
+  return res.data
 }
 
 export async function deleteDoc(docId: string) {
-  const res = await fetch(`${BASE}/docs/${encodeURIComponent(docId)}`, { method: "DELETE" })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json?.error || "delete failed")
-  return json
+  const res = await axios.delete(`${apiBase()}/docs/${docId}`, { timeout: 20_000 })
+  return res.data
 }

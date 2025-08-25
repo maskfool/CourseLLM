@@ -1,3 +1,4 @@
+// apps/web/app/_components/MessageBubble.tsx
 "use client"
 import React, { useState } from "react"
 
@@ -65,9 +66,7 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }) {
 
   return (
     <div className="relative my-3">
-      <pre
-        className="overflow-x-auto rounded-lg border bg-neutral-950 text-neutral-100 p-3 text-sm"
-      >
+      <pre className="overflow-x-auto rounded-lg border bg-neutral-950 text-neutral-100 p-3 text-sm">
         <code className={`language-${lang || "plaintext"}`}>{code}</code>
       </pre>
       <button
@@ -205,29 +204,12 @@ export default function MessageBubble({
       ? <RenderSimpleMarkdown text={children} />
       : children
 
-  const primary = (refs && refs.length > 0) ? refs[0] : undefined
-  const hasMeta = !!(primary?.sectionName || primary?.lessonId || primary?.startClock || primary?.endClock)
-
   return (
     <div className={container}>
       <div className={bubble}>
         {content}
 
-        {role === "assistant" && hasMeta ? (
-          <div
-            className={`mt-3 rounded-lg border px-3 py-2 text-[12px] ${
-              dark ? "border-black/20 bg-black/10 text-black" : "border-neutral-200 bg-neutral-50 text-black"
-            }`}
-          >
-            <span className="font-semibold">Section:</span> {primary?.sectionName || "—"}
-            <span className="font-semibold ml-3">Lesson:</span> {primary?.lessonId || "—"}
-            <span className="font-semibold ml-3">timestamps:</span>{" "}
-            {primary?.startClock || primary?.endClock
-              ? `[${primary?.startClock || ""}${primary?.endClock ? `–${primary?.endClock}` : ""}]`
-              : "—"}
-          </div>
-        ) : null}
-
+        {/* Only ⏱ chips — removed the detailed Section/Lesson/timestamps panel */}
         {role === "assistant" && refs && refs.length > 0 ? (
           <div className="mt-2">
             <div className={`mb-1 text-[11px] ${dark ? "text-neutral-500" : "text-neutral-500"}`}>

@@ -28,10 +28,20 @@ const nowIso = () => new Date().toISOString()
 export default function Page() {
   const [uploads, setUploads] = useState<UploadItem[]>([])
   const [messages, setMessages] = useState<
-    Array<{ id:number; role:"user"|"assistant"|"system"; text:string; time:string|null; refs?:TimeRef[] }>
-  >([
-    { id: 1, role: "assistant", text: "Hanjiii, kya madat karni hai aapki? Upload docs ya text/URL bhejo, aur sawal pucho. 😃", time: null },
-  ])
+  Array<{ id:number; role:"user"|"assistant"|"system"; text:string; time:string|null; refs?:TimeRef[] }>
+>([
+  {
+    id: 1,
+    role: "assistant",
+    text: `☕ Hanjii Hitesh here.  
+Yeh aapka **digital study buddy** hai – jo apko aapke course me se koi sawal ho wo type karo ya phr bas apna notes upload karo,main aapko **seedha video timestamp ke sath jawab** dunga appke course me se.  
+
+👉 Upar right corner se course select karlo, taaki main usi context me reply karun.  
+
+Chalo shuru karte hain… 🚀`,
+    time: null,
+  },
+])
   const [dark, setDark] = useState(false)
   const [courseId, setCourseId] = useState<string>("all")
 

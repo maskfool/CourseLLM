@@ -41,6 +41,22 @@ Keep them concise (<= 12 words). Do NOT answer the question. Return each on a ne
   return lines.slice(0, 2)
 }
 
+type RefRecord = {
+  sourceName?: string
+  source?: string
+  start?: number | string
+  end?: number | string
+  startClock?: string
+  endClock?: string
+  docId?: string
+  page?: number
+  videoId?: string
+  courseId?: string
+  url?: string
+  section_name?: string
+  lesson_id?: string
+}
+
 export async function answerFromDocs(
   query: string,
   { topK = Number(process.env.RAG_TOP_K || 5), courseId = 'all' } : { topK?: number; courseId?: string } = {}
@@ -67,20 +83,20 @@ export async function answerFromDocs(
 
   // 2) Retrieve per query (optionally filtered by courseId), merge, dedupe
   const seen = new Set<string>()
-  const mergedDocs: any[] = []
+  const mergedDocs: Array<{ pageContent: string; metadata: Record<string, unknown> }> = []
   for (const q of queries) {
     const docs = await similaritySearchFiltered(q, {
       topK,
       minSimilarity: 0.70,
       oversample: Math.max(12, topK * 4),
-      courseId, // your vectorstore should respect this to filter by metadata.course_id
+      courseId,
     })
-    for (const d of docs) {
-      const meta: any = d.metadata || {}
-      const key = `${meta.sourceName || meta.source || 'src'}|${meta.start ?? ''}|${(d.pageContent || '').slice(0, 80)}`
+    for (const d of docs as Array<{ pageContent: string; metadata?: Record<string, unknown> }>) {
+      const meta = d.metadata || {}
+      const key = `${(meta as any).sourceName || (meta as any).source || 'src'}|${(meta as any).start ?? ''}|${(d.pageContent || '').slice(0, 80)}`
       if (!seen.has(key)) {
         seen.add(key)
-        mergedDocs.push(d)
+        mergedDocs.push({ pageContent: d.pageContent, metadata: meta })
       }
     }
   }
@@ -98,31 +114,17 @@ export async function answerFromDocs(
 
   // 3) Build context with Section + Lesson + timestamps (so headings render bold/black in UI)
   const contextBlocks: string[] = []
-  const references: Array<{
-    sourceName?: string
-    source?: string
-    start?: number | string
-    end?: number | string
-    startClock?: string
-    endClock?: string
-    docId?: string
-    page?: number
-    videoId?: string
-    courseId?: string
-    url?: string
-    section_name?: string
-    lesson_id?: string
-  }> = []
+  const references: RefRecord[] = []
 
   finalDocs.forEach((d) => {
-    const meta: any = d.metadata || {}
-    const sourceName = meta.sourceName ?? meta.source ?? 'unknown'
-    const page = meta.loc?.pageNumber ?? meta.page
+    const meta = (d.metadata || {}) as Record<string, any>
+    const sourceName: string = meta.sourceName ?? meta.source ?? 'unknown'
+    const page: number | undefined = meta.loc?.pageNumber ?? meta.page
     const start = meta.start
     const end = meta.end
 
-    const sectionName = meta.section_name || meta.section_id
-    const lessonId = meta.lesson_id || meta.lesson_slug
+    const sectionName: string | undefined = meta.section_name || meta.section_id
+    const lessonId: string | undefined = meta.lesson_id || meta.lesson_slug
 
     const bits: string[] = []
     if (sectionName) bits.push(`Section: ${sectionName}`)
@@ -152,14 +154,14 @@ export async function answerFromDocs(
     })
   })
 
-  // 4) Prompt
+  // 4) Prompt — no inline citations; we’ll attach sources ourselves
   const system = `
 ${PERSONA.style}
 
 Use ONLY the provided context to answer.
-Always include section and lesson in your reasoning if they help; keep the final answer clean and concise.
+Keep the final answer clean and concise.
 If the answer isn't present, reply exactly: "I don't know".
-Cite briefly (section/lesson + timestamps) when helpful.
+Do NOT add citations inline; they will be attached separately.
 `.trim()
 
   const user = `
@@ -172,11 +174,40 @@ ${contextBlocks.join('\n\n---\n\n')}
 
   const chat = new ChatOpenAI({ apiKey: process.env.OPENAI_API_KEY!, model: CHAT_MODEL })
   const aiMsg = await chat.invoke([{ role: 'system', content: system }, { role: 'user', content: user }])
-  const answer = typeof aiMsg.content === 'string' ? aiMsg.content : JSON.stringify(aiMsg.content)
+  const coreAnswer = typeof aiMsg.content === 'string' ? aiMsg.content : JSON.stringify(aiMsg.content)
+
+  // 5) Build a tidy “Sources” block (top 3 unique)
+  const uniq = new Set<string>()
+  const lines: string[] = []
+  for (const r of references) {
+    const name = r.sourceName || 'source'
+    const section = r.section_name ? `Section: ${r.section_name}` : null
+    const lesson  = r.lesson_id ? `Lesson: ${r.lesson_id}` : null
+    const ts = (r.startClock || r.endClock)
+      ? `[${r.startClock ?? ''}${r.endClock ? `–${r.endClock}` : ''}]`
+      : null
+
+    const rightBits = [section, lesson].filter(Boolean).join(' • ')
+    const line = rightBits
+      ? `${name} — _${rightBits}_${ts ? ` · ${ts}` : ''}`
+      : `${name}${ts ? ` — _timestamps:_ ${ts}` : ''}`
+
+    if (line && !uniq.has(line)) {
+      uniq.add(line)
+      lines.push(`• ${line}`)
+    }
+    if (lines.length >= 3) break
+  }
+
+  const sourcesPanel = lines.length
+    ? `\n---\n**Sources**\n${lines.join('\n')}\n`
+    : ''
+
+  const finalAnswer = `${coreAnswer}${sourcesPanel}`
 
   return {
-    answer,
-    references,
+    answer: finalAnswer,
+    references, // UI still uses these for ⏱ Jump to chips
     context: finalDocs.map(d => ({ text: d.pageContent, metadata: d.metadata })),
   }
 }

@@ -1,10 +1,11 @@
+// apps/ingest-worker/src/indexing.js
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters'
 import { getTypeFromPath } from './utils/filetype.js'
 import { fromPdf } from './loaders/fromPdf.js'
 import { fromCsv } from './loaders/fromCsv.js'
 import { fromJson } from './loaders/fromJson.js'
 import { fromText } from './loaders/fromText.js'
-import { fromUrl } from './loaders/fromUrl.js'
+import { fromUrl, crawlSite } from './loaders/fromUrl.js'
 import { fromSrt } from './loaders/fromSrt.js'
 import { fromVtt } from './loaders/fromVtt.js'
 import { addDocuments } from './services/vectorstore.js'
@@ -27,13 +28,10 @@ function slugify(s = '') {
 
 /**
  * Infer course/section/lesson metadata from path + filename.
- * Expect structures like:
- *   <courseId>/<sectionDir>/<lessonOrder>-<lessonSlug>.<lang>.<ext>
- * Example:
- *   nodejs/01-Basic Node js/02-node-vs-browser.en.vtt
+ * Expect: <courseId>/<sectionDir>/<lessonOrder>-<lessonSlug>.<lang>.<ext>
  */
 function inferCourseMeta(filePath, displayName) {
-  const absOrRel = filePath // may be relative from browser
+  const absOrRel = filePath
   const dir = path.dirname(absOrRel)
   const base = displayName || path.basename(absOrRel)
 
@@ -42,13 +40,11 @@ function inferCourseMeta(filePath, displayName) {
   const courseIdRaw = segments.at(-2) || segments.at(-1) || 'course'
   const courseId = slugify(courseIdRaw)
 
-  // filename: 02-node-vs-browser.en.vtt → order=02, slug=node-vs-browser, lang=en
   const m = /^(\d{1,3})-([^.]+?)(?:\.([a-z]{2}))?\.[^.]+$/i.exec(base)
   const lessonOrder = m ? Number(m[1]) : undefined
   const lessonSlug = m ? slugify(m[2]) : slugify(base.replace(/\.[^.]+$/, ''))
   const language = m && m[3] ? m[3].toLowerCase() : undefined
 
-  // section: "01-Basic Node js" → order=01, name="Basic Node js"
   const sm = /^(\d{1,3})-?\s*(.+)$/i.exec(sectionDir)
   const sectionOrder = sm ? Number(sm[1]) : undefined
   const sectionName = sm ? sm[2].trim() : sectionDir
@@ -80,7 +76,7 @@ function attachMeta(docs, extraMeta) {
 }
 
 export async function indexFile(filePath, explicitType, docId, displayName, originalRelPath /* optional */) {
-  // Double-safety: skip hidden/system files if they reach here
+  // Skip hidden/system files if they reach here
   const base = displayName || path.basename(filePath)
   const lowerBase = base.toLowerCase()
   if (base.startsWith('.') || lowerBase.includes('ds_store') || lowerBase === 'thumbs.db' || lowerBase === 'desktop.ini') {
@@ -99,11 +95,9 @@ export async function indexFile(filePath, explicitType, docId, displayName, orig
   if (type === 'srt')  rawDocs = await fromSrt(filePath)
   if (type === 'vtt')  rawDocs = await fromVtt(filePath)
 
-  // Prefer browser-provided relative path for course/section inference
   const metaPathForInference = originalRelPath || filePath
   const courseMeta = inferCourseMeta(metaPathForInference, displayName)
 
-  // Handle empty/malformed parses without crashing
   if (!rawDocs || rawDocs.length === 0) {
     console.warn(`[index] Parsed 0 cues from ${displayName} (${type}). Skipping embedding.`)
     return {
@@ -141,6 +135,7 @@ export async function indexFile(filePath, explicitType, docId, displayName, orig
   return { type, chunksIndexed: chunks.length, docId, course: courseMeta.course_id }
 }
 
+/** Inline text */
 export async function indexText(text, docId) {
   const rawDocs = await fromText(text, true)
   const tagged = attachMeta(rawDocs, { docId, kind: 'text', sourceName: 'inline' })
@@ -149,12 +144,38 @@ export async function indexText(text, docId) {
   return { type: 'text', chunksIndexed: chunks.length, docId }
 }
 
-export async function indexUrl(url, docId) {
-  const rawDocs = await fromUrl(url, docId)
-  console.log(`[index] Loaded ${rawDocs.length} from URL (${url})`)
+/** URL (single page or whole site crawl) */
+export async function indexUrl(url, docId, opts = {}) {
+  const u = new URL(url)
+  const pathName = u.pathname || '/'
+
+  const shouldCrawl =
+    typeof opts.crawl === 'boolean' ? opts.crawl
+    : (pathName === '/' || /\/$/.test(pathName)) // auto-crawl domain root or trailing slash
+  
+  const rawDocs = shouldCrawl
+    ? await crawlSite(url, docId, {
+        maxPages: opts.maxPages ?? 500,
+        maxDepth: opts.maxDepth ?? 4,
+        sameHostOnly: opts.sameHostOnly ?? true,
+        samePathRoot: opts.samePathRoot ?? true,
+        politenessMs: opts.politenessMs ?? 450,
+      })
+    : await fromUrl(url, docId)
+
+  console.log(`[index] Loaded ${rawDocs.length} doc(s) from ${shouldCrawl ? 'crawl' : 'URL'} (${url})`)
+
+  if (!rawDocs.length) {
+    return { type: 'url', chunksIndexed: 0, docId, url, note: 'No documents extracted' }
+  }
+
   const tagged = attachMeta(rawDocs, { docId, kind: 'url', sourceName: url, course_id: 'web' })
   const chunks = await splitter.splitDocuments(tagged)
   console.log(`[index] Split → ${chunks.length} chunks`)
+  if (!chunks.length) {
+    return { type: 'url', chunksIndexed: 0, docId, url, note: 'No chunks after split' }
+  }
+
   await addDocuments(chunks)
-  return { type: 'url', chunksIndexed: chunks.length, docId }
+  return { type: 'url', chunksIndexed: chunks.length, docId, url, crawled: shouldCrawl }
 }

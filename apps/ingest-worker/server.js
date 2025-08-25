@@ -9,11 +9,11 @@ import crypto from 'node:crypto'
 
 import { indexFile, indexText, indexUrl } from './src/indexing.js'
 import { getTypeFromPath } from './src/utils/filetype.js'
-import { deleteByDocId /*, countByDocId */ } from './src/services/vectorstore.js'
+import { deleteByDocId } from './src/services/vectorstore.js'
 
 const app = express()
 app.use(cors({ origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*' }))
-app.use(express.json({ limit: '8mb' })) // ↑ more headroom
+app.use(express.json({ limit: '8mb' }))
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -22,7 +22,7 @@ const uploadsDir = path.join(__dirname, 'uploads')
 const upload = multer({
   dest: uploadsDir,
   limits: {
-    fileSize: 20 * 1024 * 1024, // 20MB per file
+    fileSize: 20 * 1024 * 1024,
     files: 1,
     fields: 10,
   },
@@ -44,7 +44,6 @@ app.post('/api/ingest/file', (req, res) => {
       const base = path.basename(original)
       const lowerBase = base.toLowerCase()
 
-      // Skip hidden/system junk early with 409
       const isHiddenOrJunk =
         base.startsWith('.') ||
         lowerBase === 'thumbs.db' ||
@@ -57,7 +56,7 @@ app.post('/api/ingest/file', (req, res) => {
         return res.status(409).json({ success: false, error: 'Skipped hidden/system file', file: base })
       }
 
-      // Normalize extension (e.g. .VTT → .vtt) for type detection
+      // Normalize extension case for type detection
       const displayName = base.replace(/\.[^.]+$/, (ext) => ext.toLowerCase())
       const explicitType = getTypeFromPath(displayName)
       if (!explicitType) {
@@ -66,7 +65,6 @@ app.post('/api/ingest/file', (req, res) => {
 
       const docId = newDocId('file')
 
-      // Pick up browser-provided relative path (for folder uploads)
       const relpath =
         (req.body && (req.body.relpath || req.body.relativePath)) ||
         (req.file && (req.file.relativePath || req.file.webkitRelativePath)) ||
@@ -77,7 +75,7 @@ app.post('/api/ingest/file', (req, res) => {
         explicitType,
         docId,
         displayName,
-        relpath // for course/section inference
+        relpath
       )
 
       res.json({ success: true, docId, result })
@@ -105,14 +103,21 @@ app.post('/api/ingest/text', async (req, res) => {
 
 app.post('/api/ingest/url', async (req, res) => {
   try {
-    const { url } = req.body || {}
+    const { url, crawl, maxPages, maxDepth, sameHostOnly, samePathRoot, politenessMs } = req.body || {}
     if (!url || typeof url !== 'string') {
       return res.status(400).json({ success: false, error: 'url required' })
     }
 
     const docId = newDocId('url')
-    console.log(`[index] Crawling URL → ${url} (docId=${docId})`)
-    const result = await indexUrl(url, docId)
+    console.log(`[index] Crawling URL → ${url} (docId=${docId}, crawl=${crawl ?? 'auto'})`)
+    const result = await indexUrl(url, docId, {
+      crawl,
+      maxPages,
+      maxDepth,
+      sameHostOnly,
+      samePathRoot,
+      politenessMs,
+    })
 
     res.json({ success: true, docId, result })
   } catch (e) {
@@ -138,7 +143,7 @@ const server = app.listen(PORT, () => {
   console.log(`🚀 Ingest worker running on :${PORT}`)
 })
 
-// Tune HTTP timeouts (stability behind Render proxy)
+// Keep-alive tuning (Render/Proxies)
 server.keepAliveTimeout = 65_000
-server.headersTimeout = 66_000
-server.requestTimeout = 0
+server.headersTimeout = 90_000
+server.requestTimeout = 90_000
