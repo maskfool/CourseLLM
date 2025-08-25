@@ -2,7 +2,11 @@
 
 DocChat is an AI-powered learning assistant that lets students ask questions from their courses, notes, or subtitles (VTT/SRT files) and get direct answers with precise video timestamps.
 
-Think of it as your personal tutor: upload your study material, ask a question, and instantly jump to the exact part of the lecture/video where the answer is explained.
+
+### (Whole App is shifted to Nextjs and Nodejs Hybrid mode) All the vtt/srt already indexed in qdrant db just open site and ask question according to vtt/srt files.
+
+Website URL - [https://course-llm-chai.vercel.app/]
+YT Demo - [https://youtu.be/Tcc5-visdEs]
 
 ⸻
 
