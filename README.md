@@ -5,7 +5,7 @@ DocChat is an AI-powered learning assistant that lets students ask questions fro
 
 ### (Whole App is shifted to Nextjs and Nodejs Hybrid mode) All the vtt/srt already indexed in qdrant db just open site and ask question according to vtt/srt files.
 
-Website URL - [https://course-llm-chai.vercel.app/]
+
 YT Demo - [https://youtu.be/Tcc5-visdEs]
 
 ⸻
